@@ -1,19 +1,47 @@
-import User from './models/users';
 import bcrypt from 'bcrypt';
 import { isProduction } from './config/security';
+import Court from './models/court';
+import User from './models/users';
 
-async function seed(): Promise<void> {
-    if (isProduction()) {
-        return;
-    }
+const DEFAULT_COURTS = [
+    {
+        name: 'Cancha de fútbol 1',
+        description: 'Cancha de fútbol 11 con césped sintético',
+        slot_minutes: 60 as const,
+        price_per_hour: '80000.00',
+        opens_at: '08:00:00',
+        closes_at: '22:00:00',
+        timezone: 'America/Bogota',
+        status: 'active' as const,
+    },
+    {
+        name: 'Cancha de tenis 1',
+        description: 'Cancha de tenis dura, iluminación nocturna',
+        slot_minutes: 30 as const,
+        price_per_hour: '45000.00',
+        opens_at: '08:00:00',
+        closes_at: '22:00:00',
+        timezone: 'America/Bogota',
+        status: 'active' as const,
+    },
+    {
+        name: 'Cancha múltiple',
+        description: 'Baloncesto / voleibol, cubierto',
+        slot_minutes: 60 as const,
+        price_per_hour: '50000.00',
+        opens_at: '08:00:00',
+        closes_at: '22:00:00',
+        timezone: 'America/Bogota',
+        status: 'active' as const,
+    },
+];
 
+async function seedAdmin(): Promise<void> {
     const adminEmail = process.env.SEED_ADMIN_EMAIL;
     const adminPassword = process.env.SEED_ADMIN_PASSWORD;
-    const userEmail = process.env.SEED_USER_EMAIL;
-    const userPassword = process.env.SEED_USER_PASSWORD;
 
     if (!adminEmail || !adminPassword || adminPassword.length < 8) {
-        console.warn('Seed omitido: configura SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD');
+        console.warn('Seed admin omitido: configura SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD');
         return;
     }
 
@@ -34,28 +62,24 @@ async function seed(): Promise<void> {
         role: 'admin',
         status: 'active',
     });
+}
 
-    if (!userEmail || !userPassword || userPassword.length < 8) {
+async function seedCourts(): Promise<void> {
+    for (const court of DEFAULT_COURTS) {
+        await Court.findOrCreate({
+            where: { name: court.name },
+            defaults: court,
+        });
+    }
+}
+
+async function seed(): Promise<void> {
+    if (isProduction()) {
         return;
     }
 
-    const encryptedUserPassword = await bcrypt.hash(userPassword, 12);
-    const [user] = await User.unscoped().findOrCreate({
-        where: { email: userEmail },
-        defaults: {
-            name: 'user',
-            email: userEmail,
-            password: encryptedUserPassword,
-            phone: '1234567890',
-            role: 'user',
-            status: 'active',
-        }
-    });
-    await user.update({
-        password: encryptedUserPassword,
-        role: 'user',
-        status: 'active',
-    });
+    await seedAdmin();
+    await seedCourts();
 }
 
 export default seed;

@@ -5,6 +5,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import sequelize from './config/database';
+import './models';
 import mainRoutes from './main_routes';
 import { serveSignedMedia } from './routes/media';
 import seed from './seed';
