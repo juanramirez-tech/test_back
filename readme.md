@@ -1,235 +1,106 @@
-# 🚀 Base TypeScript Backend
+# Sistema de reservas de canchas
 
-Base profesional para proyectos de backend con Node.js, Express, TypeScript y MySQL.
+API Node.js + Express + TypeScript + MySQL (Sequelize). El núcleo de la prueba es impedir **doble reserva** bajo concurrencia.
 
-## ✨ Características
+- Invitado reserva **sin registrarse** (pago simulado al crear).
+- Solo el **admin** inicia sesión (JWT) para confirmar o cancelar.
+- Slots fijos de 30 o 60 minutos, mínimo 1 hora, varias canchas en la misma reserva.
+- Fechas en **UTC**. Horario local de cancha: `America/Bogota`.
+- Cancelación: si ya pagó o está confirmada, se retiene el **30%**.
 
-- **Express + TypeScript** - API REST tipada y robusta
-- **Sequelize ORM** - Gestión de base de datos MySQL
-- **Autenticación JWT** - Sistema completo de auth con roles
-- **Sistema de Archivos Profesional** - Upload, thumbnails, optimización de imágenes
-- **Rate Limiting** - Protección contra ataques de fuerza bruta
-- **Envío de Emails** - Integración con Nodemailer
-- **Hot Reload** - Desarrollo ágil con Nodemon
+Documentación interactiva: [http://localhost:3000/docs](http://localhost:3000/docs) (`/docs.json` para Angular).
 
----
+## Levantar el proyecto
 
-## 📁 Estructura del Proyecto
-
-```
-src/
-├── config/
-│   └── database.ts          # Configuración de Sequelize
-├── middlewares/
-│   ├── auth.ts              # Middleware de autenticación
-│   ├── jwt.ts               # Utilidades JWT
-│   ├── validateRequired.ts  # Validación de campos
-│   └── verifyRoles.ts       # Verificación de roles
-├── models/
-│   ├── users.ts             # Modelo de usuarios
-│   ├── profile.ts           # Modelo de perfiles
-│   └── file.ts              # Modelo de archivos
-├── routes/
-│   ├── admin/               # Rutas de administración
-│   ├── auth/                # Login y registro
-│   ├── file/                # Gestión de archivos
-│   └── users/               # Rutas de usuarios
-├── services/
-│   └── fileService.ts       # Lógica de negocio de archivos
-├── storage/                 # Sistema de almacenamiento
-│   ├── StorageProvider.ts   # Interface abstracta
-│   ├── LocalStorageProvider.ts
-│   ├── FileProcessor.ts     # Procesamiento de imágenes (Sharp)
-│   ├── HashService.ts       # Checksums SHA-256
-│   └── CleanupService.ts    # Limpieza automática
-├── utils/
-│   ├── fileUtils.ts         # Utilidades de archivos
-│   └── email.ts             # Envío de correos
-├── types/
-│   └── express.d.ts         # Extensiones de tipos
-├── main_routes.ts           # Router principal
-├── seed.ts                  # Datos iniciales
-└── index.ts                 # Entry point
-```
-
----
-
-## 🛠️ Instalación
+### Opción A — Docker Compose (recomendado)
 
 ```bash
-# Clonar el repositorio
-git clone <url-del-repo>
-cd base_ts
-
-# Instalar dependencias
-npm install
-
-# Configurar variables de entorno
 cp .env.example .env
-# Editar .env con tus credenciales
+# Edita JWT_SECRET, AUTH, SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD
 
-# Ejecutar en desarrollo
+docker compose up --build
+```
+
+Si el puerto 3306 ya está ocupado por un MySQL local, usa solo la API en el host (`npm run dev`) o cambia el mapeo en `.env` (`DB_PORT`).
+
+### Opción B — API local + MySQL
+
+```bash
+cp .env.example .env
+npm install
 npm run dev
+```
 
-# Compilar para producción
+Si MySQL va en Docker y la API en el host:
+
+```bash
+docker compose up -d mysql
+```
+
+Ajusta `.env`: `DB_HOST=127.0.0.1`, `DB_USER=app`, `DB_PASSWORD` igual que en compose.
+
+## Variables mínimas
+
+| Variable | Uso |
+|---|---|
+| `DB_*` | Conexión MySQL |
+| `JWT_SECRET` | ≥ 32 caracteres |
+| `AUTH` | ≥ 16 caracteres (header `auth` en `/login`) |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Admin de desarrollo |
+| `CORS_ORIGINS` | `http://localhost:4200` para Angular |
+
+En desarrollo, `DB_SYNC_ALTER=true` crea/actualiza tablas y el seed carga admin + 3 canchas.
+
+## Flujo de negocio
+
+1. `POST /api/v1/bookings` — el invitado reserva. Por defecto `simulate_payment: true` → estado `paid` y slots ocupados.
+2. Admin `POST /login` (header `auth` + body email/password).
+3. `POST /api/v1/admin/bookings/:id/confirm` → `confirmed`.
+4. Cancelar (invitado con `access_code` o admin): libera slots; 30% de penalidad si ya había pago.
+
+`simulate_payment: false` deja un hold de 15 minutos (`pending_payment`). Un job cada 60s (y al consultar la reserva) expira holds y libera horarios.
+
+## Concurrencia (cómo probarla)
+
+El anti-solapamiento es:
+
+1. Transacción + `SELECT ... FOR UPDATE` sobre las canchas.
+2. Índice único MySQL `(court_id, starts_at)` en `reservation_slots`.
+3. Si dos requests ganan la carrera, el segundo recibe `409` (`SLOT_TAKEN`).
+
+Desde dos terminales a la vez (misma cancha y horario futuro):
+
+```bash
+curl -sS -X POST http://localhost:3000/api/v1/bookings \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "guest_name": "A",
+    "guest_email": "a@test.com",
+    "guest_phone": "3000000001",
+    "items": [{
+      "court_id": 1,
+      "starts_at": "2026-09-25T13:00:00.000Z",
+      "ends_at": "2026-09-25T14:00:00.000Z"
+    }]
+  }'
+```
+
+Un request debe ser `201` y el otro `409`. 13:00Z = 08:00 en Bogotá.
+
+## Auth en Swagger
+
+1. Authorize → **AuthGate**: valor de `AUTH` del `.env`.
+2. `POST /login` con el admin de seed.
+3. Authorize → **BearerAuth**: pega el JWT.
+
+## IA / Cursor
+
+Ver [`.cursorrules`](.cursorrules): dominio, UTC, unique de slots, sin registro público, pago simulado en el create.
+
+## Scripts
+
+```bash
+npm run dev      # desarrollo
 npm run build
 npm start
 ```
-
----
-
-## ⚙️ Configuración
-
-Crear archivo `.env` en la raíz del proyecto:
-
-```env
-# ──────────────── DATABASE ──────────────── #
-DB_NAME=base_ts
-DB_USER=root
-DB_PASSWORD=tu_password
-DB_HOST=localhost
-DB_PORT=3306
-
-# ──────────────── SERVER ──────────────── #
-PORT=3000
-JWT_SECRET=tu_secreto_jwt_seguro_aqui
-AUTH=auth
-BACKEND_URL_UPLOADS=http://localhost:3000/uploads/
-
-# ──────────────── EMAIL ──────────────── #
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=tu_email@gmail.com
-EMAIL_PASS=tu_app_password
-```
-
----
-
-## 📤 Sistema de Archivos
-
-### Estructura de Almacenamiento
-
-```
-uploads/
-├── images/
-│   ├── originals/     # Imágenes originales
-│   ├── thumbnails/    # Miniaturas 300x300 (WebP)
-│   └── optimized/     # Versiones optimizadas (WebP)
-├── documents/         # PDFs, Word, Excel
-├── other/             # Otros archivos
-└── temp/              # Temporales (limpieza automática)
-```
-
-### Características
-
-| Feature | Descripción |
-|---------|-------------|
-| 🖼️ **Thumbnails** | Generación automática 300x300 en WebP |
-| ⚡ **Optimización** | Compresión inteligente con Sharp |
-| 🔐 **Hash SHA-256** | Verificación de integridad |
-| 🔄 **Deduplicación** | Detecta archivos duplicados |
-| 🧹 **Auto-limpieza** | Elimina temporales cada 6 horas |
-
-### Tipos de Archivo Permitidos
-
-**Imágenes:** JPEG, PNG, GIF, WebP, AVIF, SVG  
-**Documentos:** PDF, DOC, DOCX, XLS, XLSX, TXT, CSV
-
----
-
-## 🔌 API Endpoints
-
-### Autenticación
-
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/auth/register` | Registro de usuario |
-| POST | `/auth/login` | Iniciar sesión |
-
-### Archivos
-
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/files` | Listar todos los archivos |
-| GET | `/files/:id` | Obtener archivo por ID |
-| GET | `/files/stats` | Estadísticas de almacenamiento |
-| POST | `/files` | Subir archivo(s) |
-| PUT | `/files/:id` | Actualizar archivo |
-| DELETE | `/files/:id` | Eliminar archivo |
-| POST | `/files/cleanup` | Ejecutar limpieza manual |
-| POST | `/files/check-duplicate` | Verificar duplicado por hash |
-
-### Ejemplo: Subir Archivo
-
-```bash
-curl -X POST http://localhost:3000/files \
-  -F "name=mi-archivo" \
-  -F "mainFile=@/path/to/image.jpg" \
-  -F "additionalFiles=@/path/to/doc.pdf"
-```
-
-### Respuesta
-
-```json
-{
-  "message": "Archivo creado exitosamente",
-  "data": {
-    "id": 1,
-    "name": "mi-archivo",
-    "mainFile": {
-      "originalname": "image.jpg",
-      "storedName": "abc123.jpg",
-      "size": 102400,
-      "hash": "sha256...",
-      "url": "http://localhost:3000/uploads/images/originals/abc123.jpg",
-      "thumbnailUrl": "http://localhost:3000/uploads/images/thumbnails/abc123_thumb.webp",
-      "optimizedUrl": "http://localhost:3000/uploads/images/optimized/abc123_opt.webp"
-    }
-  }
-}
-```
-
----
-
-## 🧩 Extensibilidad
-
-El sistema de almacenamiento usa el **patrón Strategy**, permitiendo agregar nuevos proveedores fácilmente:
-
-```typescript
-// Implementar para S3, MinIO, etc.
-class S3StorageProvider implements StorageProvider {
-  async upload(file: InputFile): Promise<StoredFile> { ... }
-  async delete(fileId: string): Promise<boolean> { ... }
-  // ...
-}
-```
-
----
-
-## 📦 Dependencias Principales
-
-| Paquete | Versión | Uso |
-|---------|---------|-----|
-| express | ^4.18 | Framework web |
-| sequelize | ^6.37 | ORM para MySQL |
-| sharp | ^0.33 | Procesamiento de imágenes |
-| jsonwebtoken | ^9.0 | Autenticación JWT |
-| multer | ^1.4 | Upload de archivos |
-| bcrypt | ^5.1 | Hash de contraseñas |
-| nodemailer | ^7.0 | Envío de emails |
-
----
-
-## 🚀 Scripts
-
-```bash
-npm run dev      # Desarrollo con hot-reload
-npm run build    # Compilar TypeScript
-npm start        # Ejecutar build de producción
-```
-
----
-
-## 📝 Licencia
-
-Proyecto privado - Todos los derechos reservados.

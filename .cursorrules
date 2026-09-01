@@ -1,0 +1,44 @@
+# Reservas de canchas — guía para el agente
+
+## Dominio
+- Backend de reservas de canchas deportivas (Node, Express, TypeScript, Sequelize, MySQL).
+- Frontend previsto: Angular en `http://localhost:4200`.
+- Invitados reservan SIN registro. Solo el rol `admin` inicia sesión (JWT).
+- No implementar registro público ni rol `user` para este producto.
+
+## Reservas
+- Slots fijos: 30 o 60 minutos por cancha (`courts.slot_minutes`).
+- Duración mínima: 1 hora. Máximo: hasta el cierre del mismo día local de la cancha.
+- Se pueden reservar varias canchas (incluso a la misma hora) en un solo booking.
+- `POST /api/v1/bookings` simula el pago por defecto (`simulate_payment: true`) y deja `status=paid`.
+- El admin confirma reservas pagadas (`confirmed`).
+- Cancelar después de pagar/confirmar retiene 30% (`penalty_amount`) y registra `refund_amount`.
+- `simulate_payment: false` usa hold de 15 minutos (`pending_payment`); al expirar se borran slots y el booking pasa a `expired`.
+
+## Concurrencia (crítico)
+- Nunca permitir doble reserva del mismo `(court_id, starts_at)`.
+- Insertar slots en transacción con `SELECT ... FOR UPDATE` sobre las canchas.
+- El unique `reservation_slots_court_starts_unique` es la garantía final; mapear `ER_DUP_ENTRY` a HTTP 409 `SLOT_TAKEN`.
+- Al cancelar o expirar, se hace DELETE de `reservation_slots` para liberar el unique.
+- Al expirar holds, un job cada 60s marca `expired` y borra slots.
+- No uses PostgreSQL exclusion constraints; el motor es MySQL.
+
+## Tiempos
+- API y `starts_at` siempre UTC (ISO-8601 con zona, p. ej. `Z`).
+- Sequelize: `timezone: '+00:00'`.
+- `opens_at` / `closes_at` son hora de pared en `courts.timezone` (default `America/Bogota`).
+
+## Arquitectura
+- Rutas públicas: `/api/v1/courts`, `/api/v1/bookings`.
+- Admin: `/api/v1/admin/courts`, `/api/v1/admin/bookings` con JWT + `verifyRoles(['admin'])`.
+- Login: `POST /login` exige header `auth` (env `AUTH`) además de email/password.
+- Lógica de negocio en `src/services/` (no inflar las rutas).
+- OpenAPI en `src/docs/openapi.ts`; UI en `/docs`.
+- Respuestas de error: `{ error: string, code?: string }` vía `HttpError`.
+- Mensajes de API en español.
+
+## Qué no hacer
+- No relajar el unique de slots ni quitar el lock de cancha.
+- No guardar fechas en hora local.
+- No añadir pasarela de pago real; el pago es simulado.
+- No commitear `.env` ni secretos.

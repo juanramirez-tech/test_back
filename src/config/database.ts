@@ -11,8 +11,24 @@ const sequelize = new Sequelize(
         host: process.env.DB_HOST,
         port: parseInt(process.env.DB_PORT || '3306', 10),
         dialect: 'mysql',
+        timezone: '+00:00',
         logging: false
     }
 );
 
 export default sequelize;
+
+export async function waitForDatabase(attempts = 20, delayMs = 2000): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            await sequelize.authenticate();
+            return;
+        } catch (error) {
+            lastError = error;
+            console.log(`Esperando MySQL (${attempt}/${attempts})...`);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+    throw lastError;
+}

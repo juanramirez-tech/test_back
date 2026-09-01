@@ -1,0 +1,49 @@
+import express from 'express';
+import {
+    cancelBooking,
+    createBooking,
+    getBookingByAccessCode,
+    payBooking,
+} from '../../services/bookingService';
+import { sendError } from '../../utils/httpError';
+import validateRequired from '../../middlewares/validateRequired';
+
+const router = express.Router();
+
+router.post('/', validateRequired(['guest_name', 'guest_email', 'guest_phone', 'items']), async (req, res) => {
+    try {
+        const booking = await createBooking(req.body as Record<string, unknown>);
+        return res.status(201).json(booking);
+    } catch (error) {
+        return sendError(res, error, 'Error al crear la reserva');
+    }
+});
+
+router.get('/:accessCode', async (req, res) => {
+    try {
+        const booking = await getBookingByAccessCode(req.params.accessCode);
+        return res.status(200).json(booking);
+    } catch (error) {
+        return sendError(res, error, 'Error al consultar la reserva');
+    }
+});
+
+router.post('/:accessCode/pay', async (req, res) => {
+    try {
+        const booking = await payBooking(req.params.accessCode);
+        return res.status(200).json(booking);
+    } catch (error) {
+        return sendError(res, error, 'Error al registrar el pago');
+    }
+});
+
+router.post('/:accessCode/cancel', async (req, res) => {
+    try {
+        const booking = await cancelBooking(req.params.accessCode);
+        return res.status(200).json(booking);
+    } catch (error) {
+        return sendError(res, error, 'Error al cancelar la reserva');
+    }
+});
+
+export default router;

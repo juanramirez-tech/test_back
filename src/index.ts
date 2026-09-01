@@ -4,13 +4,15 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
-import sequelize from './config/database';
+import sequelize, { waitForDatabase } from './config/database';
 import './models';
 import mainRoutes from './main_routes';
 import { serveSignedMedia } from './routes/media';
 import seed from './seed';
 import { getCleanupService } from './storage';
 import { assertSecureEnv, isProduction, parseCorsOrigins } from './config/security';
+import { setupDocs } from './docs/swagger';
+import { startHoldExpiryJob } from './services/holdExpiryService';
 
 dotenv.config();
 assertSecureEnv();
@@ -42,6 +44,8 @@ app.use(cors({
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
+setupDocs(app);
+
 app.use(apiLimiter);
 app.use('/media', ((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -55,16 +59,18 @@ app.get('/', (req, res) => {
     res.send('¡Hola Mundo!');
 });
 
-sequelize
-    .sync({ alter: process.env.DB_SYNC_ALTER === 'true' })
+waitForDatabase()
+    .then(() => sequelize.sync({ alter: process.env.DB_SYNC_ALTER === 'true' }))
     .then(async () => {
         await seed();
 
         const cleanup = getCleanupService();
         cleanup.startScheduledCleanup(6 * 60 * 60 * 1000);
+        startHoldExpiryJob(60 * 1000);
 
         app.listen(port, () => {
             console.log(`Server running on port ${port}`);
+            console.log(`Docs: http://localhost:${port}/docs`);
         });
     })
     .catch((error) => {
