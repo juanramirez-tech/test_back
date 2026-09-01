@@ -3,7 +3,7 @@ import Court, { COURT_SLOT_MINUTES, COURT_STATUSES, CourtSlotMinutes, CourtStatu
 import ReservationSlot from '../models/reservationSlot';
 import { toPublicCourt } from '../utils/courtSerializer';
 import { HttpError } from '../utils/httpError';
-import { normalizeTime } from '../utils/timezone';
+import { normalizeTime, utcToYmd, wallTimeToUtc } from '../utils/timezone';
 
 function parsePositiveId(value: unknown): number | null {
     const id = Number(value);
@@ -84,6 +84,48 @@ function parseStatus(value: unknown): CourtStatus {
 function assertOpensBeforeCloses(opensAt: string, closesAt: string): void {
     if (opensAt >= closesAt) {
         throw new HttpError(400, 'opens_at debe ser anterior a closes_at');
+    }
+}
+
+async function assertScheduleCompatible(
+    court: Court,
+    next: { slot_minutes: CourtSlotMinutes; opens_at: string; closes_at: string; timezone: string },
+): Promise<void> {
+    const slotMinutesChanged = next.slot_minutes !== court.slot_minutes;
+    const timezoneChanged = next.timezone !== court.timezone;
+    const hoursChanged =
+        next.opens_at !== normalizeTime(court.opens_at)
+        || next.closes_at !== normalizeTime(court.closes_at);
+
+    if (!slotMinutesChanged && !timezoneChanged && !hoursChanged) {
+        return;
+    }
+
+    const slots = await ReservationSlot.findAll({
+        where: { court_id: court.id },
+        attributes: ['starts_at'],
+    });
+    if (slots.length === 0) {
+        return;
+    }
+
+    if (slotMinutesChanged) {
+        throw new HttpError(422, 'No se puede cambiar slot_minutes mientras la cancha tiene reservas activas');
+    }
+    if (timezoneChanged) {
+        throw new HttpError(422, 'No se puede cambiar timezone mientras la cancha tiene reservas activas');
+    }
+
+    const stepMs = next.slot_minutes * 60 * 1000;
+    for (const slot of slots) {
+        const start = new Date(slot.starts_at);
+        const localDate = utcToYmd(start, next.timezone);
+        const opens = wallTimeToUtc(localDate, next.opens_at, next.timezone);
+        const closes = wallTimeToUtc(localDate, next.closes_at, next.timezone);
+        const endMs = start.getTime() + stepMs;
+        if (start.getTime() < opens.getTime() || endMs > closes.getTime()) {
+            throw new HttpError(422, 'No se puede cambiar el horario: hay reservas fuera del nuevo rango');
+        }
     }
 }
 
@@ -180,13 +222,7 @@ export async function updateCourt(idValue: unknown, body: Record<string, unknown
             : court.status,
     };
     assertOpensBeforeCloses(next.opens_at, next.closes_at);
-
-    if (next.slot_minutes !== court.slot_minutes) {
-        const occupied = await ReservationSlot.count({ where: { court_id: court.id } });
-        if (occupied > 0) {
-            throw new HttpError(422, 'No se puede cambiar slot_minutes mientras la cancha tiene reservas activas');
-        }
-    }
+    await assertScheduleCompatible(court, next);
 
     try {
         await court.update(next);

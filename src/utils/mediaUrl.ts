@@ -1,5 +1,5 @@
 import HashService from '../storage/HashService';
-import { getJwtSecret } from '../config/security';
+import { getMediaHmacSecret } from '../config/security';
 
 const DEFAULT_TTL = 3600;
 
@@ -15,7 +15,7 @@ export function getMediaTtlSeconds(): number {
 export function buildSignedMediaUrl(relativePath: string): string {
     const path = normalizeRelativePath(relativePath);
     const expiresAt = Math.floor(Date.now() / 1000) + getMediaTtlSeconds();
-    const sig = HashService.generateSignature(path, getJwtSecret(), expiresAt);
+    const sig = HashService.generateSignature(path, getMediaHmacSecret(), expiresAt);
     return `/media/${path}?expires=${expiresAt}&sig=${sig}`;
 }
 

@@ -2,8 +2,13 @@ import { Op, Transaction } from 'sequelize';
 import sequelize from '../config/database';
 import Booking from '../models/booking';
 import ReservationSlot from '../models/reservationSlot';
+import { anonymizeStaleGuestPii } from './piiRetentionService';
 
 const DEFAULT_INTERVAL_MS = 60 * 1000;
+
+let timer: NodeJS.Timeout | null = null;
+let running = false;
+let stopped = false;
 
 export async function expireStaleHolds(): Promise<number> {
     const stale = await Booking.findAll({
@@ -48,18 +53,46 @@ export async function expireStaleHolds(): Promise<number> {
     return expired;
 }
 
-export function startHoldExpiryJob(intervalMs = DEFAULT_INTERVAL_MS): void {
-    const run = async () => {
-        try {
-            const count = await expireStaleHolds();
-            if (count > 0) {
-                console.log(`[Holds] Reservas expiradas: ${count}`);
-            }
-        } catch (error) {
-            console.error('[Holds] Error en job de expiración', error);
+async function tick(): Promise<void> {
+    if (running || stopped) {
+        return;
+    }
+    running = true;
+    try {
+        const expired = await expireStaleHolds();
+        if (expired > 0) {
+            console.log(`[Holds] Reservas expiradas: ${expired}`);
         }
-    };
+        const redacted = await anonymizeStaleGuestPii();
+        if (redacted > 0) {
+            console.log(`[PII] Reservas anonimizadas: ${redacted}`);
+        }
+    } catch (error) {
+        console.error('[Holds] Error en job de expiración', error);
+    } finally {
+        running = false;
+    }
+}
 
-    void run();
-    setInterval(run, intervalMs);
+export function startHoldExpiryJob(intervalMs = DEFAULT_INTERVAL_MS): void {
+    if (timer) {
+        return;
+    }
+    stopped = false;
+    void tick();
+    timer = setInterval(() => {
+        void tick();
+    }, intervalMs);
+}
+
+export async function stopHoldExpiryJob(): Promise<void> {
+    stopped = true;
+    if (timer) {
+        clearInterval(timer);
+        timer = null;
+    }
+    const started = Date.now();
+    while (running && Date.now() - started < 8000) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 }

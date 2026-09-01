@@ -23,7 +23,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Si el puerto 3306 ya está ocupado por un MySQL local, usa solo la API en el host (`npm run dev`) o cambia el mapeo en `.env` (`DB_PORT`).
+MySQL **no** se publica en el host: solo la API (puerto 3000) y la red interna de Compose. Así 3306 no queda en `0.0.0.0`.
 
 ### Opción B — API local + MySQL
 
@@ -33,23 +33,26 @@ npm install
 npm run dev
 ```
 
-Si MySQL va en Docker y la API en el host:
+Si MySQL va en Docker y la API en el host, publica 3306 **solo en loopback**:
 
 ```bash
-docker compose up -d mysql
+docker compose -f docker-compose.yml -f docker-compose.host.yml up -d mysql
 ```
 
-Ajusta `.env`: `DB_HOST=127.0.0.1`, `DB_USER=app`, `DB_PASSWORD` igual que en compose.
+Ajusta `.env`: `DB_HOST=127.0.0.1`, `DB_USER=app`, `DB_PASSWORD` igual que en compose. Si 3306 ya está ocupado, cambia `DB_PORT` en `.env`.
 
 ## Variables mínimas
 
 | Variable | Uso |
 |---|---|
 | `DB_*` | Conexión MySQL |
-| `JWT_SECRET` | ≥ 32 caracteres |
+| `JWT_SECRET` | ≥ 32 caracteres (solo login JWT) |
+| `MEDIA_HMAC_SECRET` | ≥ 32 caracteres, **distinto** de JWT_SECRET (firmas de archivos) |
 | `AUTH` | ≥ 16 caracteres (header `auth` en `/login`) |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Admin de desarrollo |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Admin de desarrollo (password: letras y números, ≥ 8) |
 | `CORS_ORIGINS` | `http://localhost:4200` para Angular |
+| `TRUST_PROXY` | `1` solo detrás de nginx/traefik. Vacío si Node está expuesto directo |
+| `PII_RETENTION_DAYS` | Días para anonimizar invitados de reservas canceladas/expiradas. `0` desactiva |
 
 | `ENABLE_DOCS` | Swagger en `/docs`. En production default off |
 | `DB_SYNC_ALTER` | `true` solo en local al cambiar modelos; Compose lo deja en `false` |
@@ -63,9 +66,13 @@ El seed (solo development) **crea** el admin y las 3 canchas si no existen. Si y
 1. `POST /api/v1/bookings` — el invitado reserva. Por defecto `simulate_payment: true` → estado `paid` y slots ocupados.
 2. Admin `POST /login` (header `auth` + body email/password).
 3. `POST /api/v1/admin/bookings/:id/confirm` → `confirmed`.
-4. Cancelar (invitado con `access_code` o admin): libera slots; 30% de penalidad si ya había pago.
+4. Cancelar (invitado con header `X-Access-Code` en `POST /api/v1/bookings/cancel`, o admin).
 
-`simulate_payment: false` deja un hold de 15 minutos (`pending_payment`). Un job cada 60s (y al consultar la reserva) expira holds y libera horarios.
+`simulate_payment: false` deja un hold de 15 minutos (`pending_payment`). Un job cada 60s (y al consultar la reserva) expira holds y libera horarios. SIGTERM detiene el job y cierra el pool de MySQL.
+
+`GET /health` responde `{ "status": "ok" }` si la API y MySQL responden (Compose lo usa). Un admin desactivado deja de poder usar su JWT.
+
+Tras `PII_RETENTION_DAYS` (90 por defecto), las reservas `cancelled`/`expired` anonimizan nombre, email y teléfono.
 
 ## Concurrencia (cómo probarla)
 
@@ -94,6 +101,12 @@ curl -sS -X POST http://localhost:3000/api/v1/bookings \
 
 Un request debe ser `201` y el otro `409`. 13:00Z = 08:00 en Bogotá.
 
+Con el servidor levantado:
+
+```bash
+RUN_INTEGRATION=1 npm test
+```
+
 ## Auth en Swagger
 
 1. Authorize → **AuthGate**: valor de `AUTH` del `.env`.
@@ -108,6 +121,7 @@ Ver [`.cursorrules`](.cursorrules): dominio, UTC, unique de slots, sin registro 
 
 ```bash
 npm run dev      # desarrollo
+npm test         # unitarios (timezone, auth, logs). Carrera: RUN_INTEGRATION=1 npm test
 npm run build
 npm start
 ```

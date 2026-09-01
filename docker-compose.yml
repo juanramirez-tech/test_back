@@ -8,13 +8,16 @@ services:
       MYSQL_USER: app
       MYSQL_PASSWORD: ${DB_PASSWORD:-changeme}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootchangeme}
-    ports:
-      - "${DB_PORT:-3306}:3306"
+    # Sin `ports`: MySQL solo existe en la red de Compose (no en 0.0.0.0:3306).
+    # API en el host: docker compose -f docker-compose.yml -f docker-compose.host.yml up -d mysql
+    expose:
+      - "3306"
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_ROOT_PASSWORD:-rootchangeme}"]
+      # $$ evita interpolar la clave en `docker inspect`. CMD-SHELL expande el env del contenedor.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -33,8 +36,15 @@ services:
       DB_NAME: ${DB_NAME:-test_db}
       DB_USER: app
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
-      NODE_ENV: development
+      # development corre el seed. Un deploy real: NODE_ENV=production.
+      NODE_ENV: ${NODE_ENV:-development}
       DB_SYNC_ALTER: "false"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health',(r)=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
     depends_on:
       mysql:
         condition: service_healthy

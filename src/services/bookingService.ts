@@ -7,11 +7,13 @@ import ReservationSlot from '../models/reservationSlot';
 import { buildDaySlots } from './availabilityService';
 import { toPublicBooking } from '../utils/bookingSerializer';
 import { HttpError } from '../utils/httpError';
-import { addDaysYmd, parseUtcInstant, utcToYmd, wallTimeToUtc } from '../utils/timezone';
+import { addDaysYmd, isDateYmd, parseUtcInstant, utcToYmd, wallTimeToUtc } from '../utils/timezone';
 
 export const HOLD_MINUTES = 15;
 export const MIN_DURATION_MINUTES = 60;
 export const MAX_ADVANCE_DAYS = 30;
+export const MAX_BOOKING_RANGES = 8;
+export const MAX_BOOKING_SLOTS = 24;
 export const CANCEL_PENALTY_RATE = 0.3;
 
 export interface BookingItemInput {
@@ -89,6 +91,9 @@ function normalizeGuestField(value: unknown, max: number): string | null {
 function parseItems(raw: unknown): BookingItemInput[] {
     if (!Array.isArray(raw) || raw.length === 0) {
         throw new HttpError(400, 'items debe ser un arreglo con al menos un rango');
+    }
+    if (raw.length > MAX_BOOKING_RANGES) {
+        throw new HttpError(400, `Máximo ${MAX_BOOKING_RANGES} rangos por reserva`);
     }
 
     return raw.map((item, index) => {
@@ -294,6 +299,9 @@ export async function createBooking(body: Record<string, unknown>) {
                 expanded.push(slot);
             }
         }
+        if (expanded.length > MAX_BOOKING_SLOTS) {
+            throw new HttpError(400, `Máximo ${MAX_BOOKING_SLOTS} slots por reserva`);
+        }
 
         const conflict = await ReservationSlot.findOne({
             where: {
@@ -357,6 +365,26 @@ async function applyCancel(booking: Booking, transaction: Transaction): Promise<
         throw new HttpError(422, 'La reserva expiró y no se puede cancelar');
     }
 
+    let slots = booking.get('slots') as ReservationSlot[] | undefined;
+    if (!slots) {
+        slots = await ReservationSlot.findAll({
+            where: { booking_id: booking.id },
+            transaction,
+        });
+    }
+
+    const earliestStart = slots.reduce<number | null>((min, slot) => {
+        const start = slot.starts_at.getTime();
+        if (min === null || start < min) {
+            return start;
+        }
+        return min;
+    }, null);
+
+    if (earliestStart !== null && earliestStart <= Date.now()) {
+        throw new HttpError(422, 'No se puede cancelar un turno que ya comenzó');
+    }
+
     const applyPenalty = booking.status === 'paid' || booking.status === 'confirmed';
     const totalCents = toCents(booking.total_amount);
     const penaltyCents = applyPenalty ? Math.round(totalCents * CANCEL_PENALTY_RATE) : 0;
@@ -416,8 +444,8 @@ export async function listBookings(query: Record<string, unknown>) {
         slotWhere.court_id = courtId;
     }
     if (date) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-            throw new HttpError(400, 'date debe ser YYYY-MM-DD');
+        if (!isDateYmd(date)) {
+            throw new HttpError(400, 'date debe ser una fecha calendario válida (YYYY-MM-DD)');
         }
         slotWhere.starts_at = {
             [Op.gte]: wallTimeToUtc(date, '00:00:00', 'America/Bogota'),

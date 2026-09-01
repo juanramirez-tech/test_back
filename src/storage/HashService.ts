@@ -86,15 +86,14 @@ class HashService {
         expiresAt?: number
     ): boolean {
         const expectedSignature = this.generateSignature(data, secret, expiresAt);
-        
-        // Verificación en tiempo constante para prevenir timing attacks
-        if (signature.length !== expectedSignature.length) {
+
+        if (!/^[a-f0-9]+$/i.test(signature) || signature.length !== expectedSignature.length) {
             return false;
         }
-        
+
         return crypto.timingSafeEqual(
-            Buffer.from(signature),
-            Buffer.from(expectedSignature)
+            Buffer.from(signature, 'hex'),
+            Buffer.from(expectedSignature, 'hex')
         );
     }
 }

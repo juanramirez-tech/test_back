@@ -1,7 +1,18 @@
-const DATE_YMD = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+/** YYYY-MM-DD de calendario real (rechaza 2026-02-31, 2025-02-29, etc.). */
 export function isDateYmd(value: string): boolean {
-    return DATE_YMD.test(value);
+    const match = DATE_YMD.exec(value);
+    if (!match) {
+        return false;
+    }
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const utc = new Date(Date.UTC(year, month - 1, day));
+    return utc.getUTCFullYear() === year
+        && utc.getUTCMonth() === month - 1
+        && utc.getUTCDate() === day;
 }
 
 export function normalizeTime(value: string | Date): string {
@@ -17,9 +28,15 @@ export function normalizeTime(value: string | Date): string {
         throw new Error('Hora inválida');
     }
 
-    const hours = String(Number(match[1])).padStart(2, '0');
-    const minutes = match[2];
-    const seconds = match[3] ?? '00';
+    const hoursNum = Number(match[1]);
+    const minutesNum = Number(match[2]);
+    const secondsNum = Number(match[3] ?? 0);
+    if (hoursNum > 23 || minutesNum > 59 || secondsNum > 59) {
+        throw new Error('Hora inválida');
+    }
+    const hours = String(hoursNum).padStart(2, '0');
+    const minutes = String(minutesNum).padStart(2, '0');
+    const seconds = String(secondsNum).padStart(2, '0');
     return `${hours}:${minutes}:${seconds}`;
 }
 

@@ -1,0 +1,6 @@
+# Publica MySQL solo en loopback (127.0.0.1), nunca en todas las interfaces.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.host.yml up -d mysql
+services:
+  mysql:
+    ports:
+      - "127.0.0.1:${DB_PORT:-3306}:3306"

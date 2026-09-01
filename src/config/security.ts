@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import type { Application } from 'express';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -52,18 +53,37 @@ export function getAuthGateSecret(): string {
     return auth;
 }
 
+export function getMediaHmacSecret(): string {
+    const secret = process.env.MEDIA_HMAC_SECRET || '';
+    if (secret.length < 32) {
+        throw new Error('MEDIA_HMAC_SECRET debe tener al menos 32 caracteres aleatorios.');
+    }
+    if (secret === getJwtSecret()) {
+        throw new Error('MEDIA_HMAC_SECRET debe ser distinto de JWT_SECRET.');
+    }
+    return secret;
+}
+
 export function assertSecureEnv(): void {
     getJwtSecret();
     getAuthGateSecret();
+
+    const media = process.env.MEDIA_HMAC_SECRET || '';
+    if (isProduction()) {
+        getMediaHmacSecret();
+        return;
+    }
+    if (media) {
+        getMediaHmacSecret();
+        return;
+    }
+    console.warn('MEDIA_HMAC_SECRET no configurado: las URLs de /media no se podrán firmar.');
 }
 
 export function timingSafeStringEqual(a: string, b: string): boolean {
-    const bufA = Buffer.from(a);
-    const bufB = Buffer.from(b);
-    if (bufA.length !== bufB.length) {
-        return false;
-    }
-    return crypto.timingSafeEqual(bufA, bufB);
+    const digestA = crypto.createHash('sha256').update(a, 'utf8').digest();
+    const digestB = crypto.createHash('sha256').update(b, 'utf8').digest();
+    return crypto.timingSafeEqual(digestA, digestB);
 }
 
 export function parseCorsOrigins(): string[] {
@@ -71,9 +91,34 @@ export function parseCorsOrigins(): string[] {
     return raw.split(',').map((origin) => origin.trim()).filter(Boolean);
 }
 
+/**
+ * Detrás de nginx/traefik, Express debe confiar N hops para que req.ip
+ * (y el rate limit) usen el cliente real. Si Node está expuesto directo,
+ * no lo actives: cualquiera podría falsificar X-Forwarded-For.
+ */
+export function configureTrustProxy(app: Application): void {
+    const raw = (process.env.TRUST_PROXY || '').trim().toLowerCase();
+    if (!raw || raw === 'false' || raw === '0') {
+        return;
+    }
+    if (raw === 'true') {
+        app.set('trust proxy', 1);
+        return;
+    }
+    const hops = Number(raw);
+    if (Number.isInteger(hops) && hops >= 1 && hops <= 5) {
+        app.set('trust proxy', hops);
+        return;
+    }
+    throw new Error('TRUST_PROXY debe ser false, true, o un número de hops entre 1 y 5.');
+}
+
 export function validatePassword(password: unknown): string | null {
     if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
         return 'La contraseña debe tener entre 8 y 128 caracteres';
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+        return 'La contraseña debe incluir letras y números';
     }
     return null;
 }

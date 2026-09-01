@@ -3,7 +3,7 @@ import fs from 'fs';
 import { Request, Response } from 'express';
 import { getStorageProvider } from '../storage';
 import HashService from '../storage/HashService';
-import { getJwtSecret } from '../config/security';
+import { getMediaHmacSecret } from '../config/security';
 
 const CONTENT_TYPES: Record<string, string> = {
     '.jpg': 'image/jpeg',
@@ -50,7 +50,7 @@ export const serveSignedMedia = async (req: Request, res: Response) => {
             return res.status(401).json({ error: 'URL de archivo expirada' });
         }
 
-        const valid = HashService.verifySignature(relativePath, sig, getJwtSecret(), expires);
+        const valid = HashService.verifySignature(relativePath, sig, getMediaHmacSecret(), expires);
         if (!valid) {
             return res.status(401).json({ error: 'Firma de archivo no válida' });
         }

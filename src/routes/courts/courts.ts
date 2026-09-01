@@ -46,7 +46,7 @@ router.get('/availability', async (req, res) => {
     try {
         const date = typeof req.query.date === 'string' ? req.query.date : '';
         if (!isDateYmd(date)) {
-            return res.status(400).json({ error: 'Query date es requerido (YYYY-MM-DD)' });
+            return res.status(400).json({ error: 'Query date debe ser una fecha calendario válida (YYYY-MM-DD)' });
         }
 
         const parsedIds = parseCourtIds(req.query.court_ids);
@@ -80,7 +80,7 @@ router.get('/:id/availability', async (req, res) => {
             return res.status(400).json({ error: 'ID de cancha inválido' });
         }
         if (!isDateYmd(date)) {
-            return res.status(400).json({ error: 'Query date es requerido (YYYY-MM-DD)' });
+            return res.status(400).json({ error: 'Query date debe ser una fecha calendario válida (YYYY-MM-DD)' });
         }
 
         const court = await Court.findOne({ where: { id, status: 'active' } });

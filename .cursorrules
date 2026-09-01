@@ -9,11 +9,12 @@
 ## Reservas
 - Slots fijos: 30 o 60 minutos por cancha (`courts.slot_minutes`).
 - Duración mínima: 1 hora. Máximo: hasta el cierre del mismo día local de la cancha.
-- Anticipación máxima: 30 días. `POST /api/v1/bookings` tiene rate limit 8 req / 15 min por IP.
+- Anticipación máxima: 30 días. `POST /api/v1/bookings` tiene rate limit 8 req / 15 min por IP. Máximo 8 rangos y 24 slots por reserva.
 - Se pueden reservar varias canchas (incluso a la misma hora) en un solo booking.
 - `POST /api/v1/bookings` simula el pago por defecto (`simulate_payment: true`) y deja `status=paid`.
 - El admin confirma reservas pagadas (`confirmed`).
 - Cancelar después de pagar/confirmar retiene 30% (`penalty_amount`) y registra `refund_amount`.
+- No se cancela si el primer slot ya comenzó (`422`).
 - `simulate_payment: false` usa hold de 15 minutos (`pending_payment`); al expirar se borran slots y el booking pasa a `expired`.
 
 ## Concurrencia (crítico)
@@ -26,19 +27,26 @@
 
 ## Tiempos
 - API y `starts_at` siempre UTC (ISO-8601 con zona, p. ej. `Z`).
-- Sequelize: `timezone: '+00:00'`.
+- Sequelize: `timezone: '+00:00'`. El proceso usa `TZ=UTC`.
 - `opens_at` / `closes_at` son hora de pared en `courts.timezone` (default `America/Bogota`).
 
 ## Arquitectura
 - Rutas públicas: `/api/v1/courts`, `/api/v1/bookings`.
-- Admin: `/api/v1/admin/courts`, `/api/v1/admin/bookings` con JWT + `verifyRoles(['admin'])`.
+- Admin: `/api/v1/admin/courts`, `/api/v1/admin/bookings` con JWT + `verifyRoles(['admin'])`. El JWT se revalida contra el admin activo en DB (desactivar corta el token).
 - Login: `POST /login` exige header `auth` (env `AUTH`) además de email/password.
+- `GET /health` (sin rate limit) comprueba API + MySQL. Compose lo usa como healthcheck.
+- Al SIGTERM/SIGINT se detiene el job de holds (mutex, no solapa ticks) y se cierra el pool.
+- PII de invitados: reservas `cancelled`/`expired` se anonimizan tras `PII_RETENTION_DAYS` (default 90).
 - No montar `/file`, `/media`, `/admin/users` ni `/users/profile` (boilerplate, fuera del producto).
 - Lógica de negocio en `src/services/` (no inflar las rutas).
 - OpenAPI en `src/docs/openapi.ts`; UI en `/docs` solo en development (o `ENABLE_DOCS=true`).
 - Nunca `sequelize.sync({ alter: true })` en production. Compose usa alter=false.
+- Compose no publica MySQL al host. Para API local: `docker-compose.host.yml` (solo `127.0.0.1`).
+- `TRUST_PROXY` vacío por defecto. Solo `1` detrás de nginx; si no, el rate limit usaría la IP del proxy o aceptaría `X-Forwarded-For` falso.
+- `date` query: calendario real (`isDateYmd`), no regex YYYY-MM-DD.
+- Actualizar cancha: se puede ampliar horario; 422 si se encoge, o si cambian timezone/`slot_minutes`, con reservas activas.
 - Respuestas de error siempre `{ error: string, code?: string }`. HTTP 200/201 pueden llevar `token` u otros datos, no `error`.
-- No loguear `access_code` (Morgan redacta `/api/v1/bookings/:accessCode`).
+- Invitado: `access_code` solo en el body de creación y luego en header `X-Access-Code` (`GET /mine`, `POST /pay`, `POST /cancel`). Nunca en la URL.
 - Mensajes de API en español.
 
 ## Qué no hacer
@@ -46,3 +54,4 @@
 - No guardar fechas en hora local.
 - No añadir pasarela de pago real; el pago es simulado.
 - Seed: crear admin/canchas solo si no existen. Nunca resetear password ni reactivar un admin desactivado.
+- JWT_SECRET solo para JWT. MEDIA_HMAC_SECRET distinto, para HMAC de archivos.

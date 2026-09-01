@@ -1,3 +1,4 @@
+import './processTimezone';
 import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
 
@@ -12,7 +13,17 @@ const sequelize = new Sequelize(
         port: parseInt(process.env.DB_PORT || '3306', 10),
         dialect: 'mysql',
         timezone: '+00:00',
-        logging: false
+        logging: false,
+        pool: {
+            max: 10,
+            min: 0,
+            acquire: 30_000,
+            idle: 10_000,
+        },
+        dialectOptions: {
+            timezone: '+00:00',
+            connectTimeout: 15_000,
+        },
     }
 );
 

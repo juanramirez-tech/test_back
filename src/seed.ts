@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { isProduction } from './config/security';
+import { isProduction, validatePassword } from './config/security';
 import Court from './models/court';
 import User from './models/users';
 
@@ -39,9 +39,10 @@ const DEFAULT_COURTS = [
 async function seedAdmin(): Promise<void> {
     const adminEmail = process.env.SEED_ADMIN_EMAIL;
     const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+    const passwordError = validatePassword(adminPassword);
 
-    if (!adminEmail || !adminPassword || adminPassword.length < 8) {
-        console.warn('Seed admin omitido: configura SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD');
+    if (!adminEmail || typeof adminPassword !== 'string' || passwordError) {
+        console.warn('Seed admin omitido: configura SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD (letras y números, ≥ 8)');
         return;
     }
 
