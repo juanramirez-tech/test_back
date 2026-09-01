@@ -9,6 +9,7 @@ export const openApiSpec = {
             '**Fechas:** ISO-8601 UTC. 08:00 en `America/Bogota` = `13:00Z`.',
             '',
             '**Pago:** `POST /api/v1/bookings` simula el pago por defecto (`simulate_payment: true`) y deja la reserva en `paid`. El admin confirma.',
+            '**Límites:** máximo 30 días de anticipación; 8 creaciones por IP cada 15 minutos.',
             '',
             '**Prueba sugerida**',
             '1. `GET /api/v1/courts` y `GET .../availability?date=2026-09-25`',
@@ -114,7 +115,12 @@ export const openApiSpec = {
                 required: ['court_id', 'starts_at', 'ends_at'],
                 properties: {
                     court_id: { type: 'integer', example: 1 },
-                    starts_at: { type: 'string', format: 'date-time', example: '2026-09-25T13:00:00.000Z' },
+                    starts_at: {
+                        type: 'string',
+                        format: 'date-time',
+                        example: '2026-09-25T13:00:00.000Z',
+                        description: 'UTC. No puede ser pasado ni más de 30 días en el futuro.',
+                    },
                     ends_at: { type: 'string', format: 'date-time', example: '2026-09-25T15:00:00.000Z' },
                 },
             },
@@ -362,6 +368,10 @@ export const openApiSpec = {
                     },
                     400: { $ref: '#/components/responses/BadRequest' },
                     409: { $ref: '#/components/responses/Conflict' },
+                    429: {
+                        description: 'Demasiadas reservas desde esta IP',
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+                    },
                 },
             },
         },

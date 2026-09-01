@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import {
     cancelBooking,
     createBooking,
@@ -10,7 +11,19 @@ import validateRequired from '../../middlewares/validateRequired';
 
 const router = express.Router();
 
-router.post('/', validateRequired(['guest_name', 'guest_email', 'guest_phone', 'items']), async (req, res) => {
+const createBookingLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 8,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas reservas desde esta IP, intenta más tarde' },
+});
+
+router.post(
+    '/',
+    createBookingLimiter,
+    validateRequired(['guest_name', 'guest_email', 'guest_phone', 'items']),
+    async (req, res) => {
     try {
         const booking = await createBooking(req.body as Record<string, unknown>);
         return res.status(201).json(booking);

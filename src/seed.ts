@@ -45,23 +45,21 @@ async function seedAdmin(): Promise<void> {
         return;
     }
 
+    const existing = await User.unscoped().findOne({ where: { email: adminEmail } });
+    if (existing) {
+        return;
+    }
+
     const encryptedAdminPassword = await bcrypt.hash(adminPassword, 12);
-    const [admin] = await User.unscoped().findOrCreate({
-        where: { email: adminEmail },
-        defaults: {
-            name: 'admin',
-            email: adminEmail,
-            password: encryptedAdminPassword,
-            phone: '1234567890',
-            role: 'admin',
-            status: 'active',
-        }
-    });
-    await admin.update({
+    await User.create({
+        name: 'admin',
+        email: adminEmail,
         password: encryptedAdminPassword,
+        phone: '1234567890',
         role: 'admin',
         status: 'active',
     });
+    console.log(`Seed admin creado: ${adminEmail}`);
 }
 
 async function seedCourts(): Promise<void> {

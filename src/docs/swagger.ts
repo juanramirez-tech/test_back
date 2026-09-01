@@ -1,8 +1,13 @@
 import { Express } from 'express';
 import swaggerUi from 'swagger-ui-express';
+import { isDocsEnabled } from '../config/security';
 import { openApiSpec } from './openapi';
 
-export function setupDocs(app: Express): void {
+export function setupDocs(app: Express): boolean {
+    if (!isDocsEnabled()) {
+        return false;
+    }
+
     app.get('/docs.json', (_req, res) => {
         res.json(openApiSpec);
     });
@@ -22,4 +27,6 @@ export function setupDocs(app: Express): void {
             },
         })
     );
+
+    return true;
 }

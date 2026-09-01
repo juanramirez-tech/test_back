@@ -9,6 +9,7 @@
 ## Reservas
 - Slots fijos: 30 o 60 minutos por cancha (`courts.slot_minutes`).
 - Duración mínima: 1 hora. Máximo: hasta el cierre del mismo día local de la cancha.
+- Anticipación máxima: 30 días. `POST /api/v1/bookings` tiene rate limit 8 req / 15 min por IP.
 - Se pueden reservar varias canchas (incluso a la misma hora) en un solo booking.
 - `POST /api/v1/bookings` simula el pago por defecto (`simulate_payment: true`) y deja `status=paid`.
 - El admin confirma reservas pagadas (`confirmed`).
@@ -32,13 +33,16 @@
 - Rutas públicas: `/api/v1/courts`, `/api/v1/bookings`.
 - Admin: `/api/v1/admin/courts`, `/api/v1/admin/bookings` con JWT + `verifyRoles(['admin'])`.
 - Login: `POST /login` exige header `auth` (env `AUTH`) además de email/password.
+- No montar `/file`, `/media`, `/admin/users` ni `/users/profile` (boilerplate, fuera del producto).
 - Lógica de negocio en `src/services/` (no inflar las rutas).
-- OpenAPI en `src/docs/openapi.ts`; UI en `/docs`.
-- Respuestas de error: `{ error: string, code?: string }` vía `HttpError`.
+- OpenAPI en `src/docs/openapi.ts`; UI en `/docs` solo en development (o `ENABLE_DOCS=true`).
+- Nunca `sequelize.sync({ alter: true })` en production. Compose usa alter=false.
+- Respuestas de error siempre `{ error: string, code?: string }`. HTTP 200/201 pueden llevar `token` u otros datos, no `error`.
+- No loguear `access_code` (Morgan redacta `/api/v1/bookings/:accessCode`).
 - Mensajes de API en español.
 
 ## Qué no hacer
 - No relajar el unique de slots ni quitar el lock de cancha.
 - No guardar fechas en hora local.
 - No añadir pasarela de pago real; el pago es simulado.
-- No commitear `.env` ni secretos.
+- Seed: crear admin/canchas solo si no existen. Nunca resetear password ni reactivar un admin desactivado.

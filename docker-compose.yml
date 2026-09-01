@@ -34,7 +34,7 @@ services:
       DB_USER: app
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
       NODE_ENV: development
-      DB_SYNC_ALTER: "true"
+      DB_SYNC_ALTER: "false"
     depends_on:
       mysql:
         condition: service_healthy

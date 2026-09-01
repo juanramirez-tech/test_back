@@ -11,6 +11,7 @@ import { addDaysYmd, parseUtcInstant, utcToYmd, wallTimeToUtc } from '../utils/t
 
 export const HOLD_MINUTES = 15;
 export const MIN_DURATION_MINUTES = 60;
+export const MAX_ADVANCE_DAYS = 30;
 export const CANCEL_PENALTY_RATE = 0.3;
 
 export interface BookingItemInput {
@@ -121,6 +122,11 @@ function expandItem(court: Court, item: BookingItemInput, nowMs: number): Expand
         throw new HttpError(400, 'No se puede reservar un horario en el pasado');
     }
 
+    const maxAdvanceMs = MAX_ADVANCE_DAYS * 24 * 60 * 60 * 1000;
+    if (startMs > nowMs + maxAdvanceMs) {
+        throw new HttpError(400, `No se puede reservar con más de ${MAX_ADVANCE_DAYS} días de anticipación`);
+    }
+
     const day = utcToYmd(item.starts_at, court.timezone);
     const endDay = utcToYmd(new Date(endMs - 1000), court.timezone);
     if (day !== endDay) {
@@ -178,6 +184,30 @@ async function loadById(id: number, transaction?: Transaction): Promise<Booking>
     return booking;
 }
 
+/** Bloquea la fila del booking (SELECT … FOR UPDATE) y luego carga relaciones. */
+async function lockByAccessCode(accessCode: string, transaction: Transaction): Promise<Booking> {
+    const locked = await Booking.findOne({
+        where: { access_code: accessCode },
+        lock: Transaction.LOCK.UPDATE,
+        transaction,
+    });
+    if (!locked) {
+        throw new HttpError(404, 'Reserva no encontrada');
+    }
+    return loadByAccessCode(accessCode, transaction);
+}
+
+async function lockById(id: number, transaction: Transaction): Promise<Booking> {
+    const locked = await Booking.findByPk(id, {
+        lock: Transaction.LOCK.UPDATE,
+        transaction,
+    });
+    if (!locked) {
+        throw new HttpError(404, 'Reserva no encontrada');
+    }
+    return loadById(id, transaction);
+}
+
 async function expireIfNeeded(booking: Booking, transaction?: Transaction): Promise<Booking> {
     const expiredHold = booking.status === 'pending_payment'
         && booking.hold_expires_at
@@ -188,8 +218,30 @@ async function expireIfNeeded(booking: Booking, transaction?: Transaction): Prom
     }
 
     await ReservationSlot.destroy({ where: { booking_id: booking.id }, transaction });
-    await booking.update({ status: 'expired' }, { transaction });
+    await booking.update({
+        status: 'expired',
+        hold_expires_at: null,
+    }, { transaction });
     return loadByAccessCode(booking.access_code, transaction);
+}
+
+async function withLockedBooking<T>(
+    loadLocked: (transaction: Transaction) => Promise<Booking>,
+    work: (booking: Booking, transaction: Transaction) => Promise<T>
+): Promise<T> {
+    const transaction = await sequelize.transaction({
+        isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+    });
+    try {
+        let booking = await loadLocked(transaction);
+        booking = await expireIfNeeded(booking, transaction);
+        const result = await work(booking, transaction);
+        await transaction.commit();
+        return result;
+    } catch (error) {
+        await transaction.rollback();
+        throw error;
+    }
 }
 
 export async function createBooking(body: Record<string, unknown>) {
@@ -323,12 +375,18 @@ async function applyCancel(booking: Booking, transaction: Transaction): Promise<
 }
 
 export async function getBookingByAccessCode(accessCode: string) {
-    const booking = await expireIfNeeded(await loadByAccessCode(accessCode));
+    const booking = await withLockedBooking(
+        (transaction) => lockByAccessCode(accessCode, transaction),
+        async (current) => current
+    );
     return toPublicBooking(booking);
 }
 
 export async function getBookingById(id: number) {
-    const booking = await expireIfNeeded(await loadById(id));
+    const booking = await withLockedBooking(
+        (transaction) => lockById(id, transaction),
+        async (current) => current
+    );
     return toPublicBooking(booking);
 }
 
@@ -400,82 +458,62 @@ export async function listBookings(query: Record<string, unknown>) {
 }
 
 export async function payBooking(accessCode: string) {
-    const transaction = await sequelize.transaction();
-    try {
-        let booking = await loadByAccessCode(accessCode, transaction);
-        booking = await expireIfNeeded(booking, transaction);
+    await withLockedBooking(
+        (transaction) => lockByAccessCode(accessCode, transaction),
+        async (booking, transaction) => {
+            if (booking.status === 'paid' || booking.status === 'confirmed') {
+                throw new HttpError(422, 'La reserva ya está pagada');
+            }
+            if (booking.status !== 'pending_payment') {
+                throw new HttpError(422, 'La reserva no se puede pagar en su estado actual');
+            }
 
-        if (booking.status === 'paid' || booking.status === 'confirmed') {
-            throw new HttpError(422, 'La reserva ya está pagada');
+            await booking.update({
+                status: 'paid',
+                paid_at: new Date(),
+                hold_expires_at: null,
+            }, { transaction });
         }
-        if (booking.status !== 'pending_payment') {
-            throw new HttpError(422, 'La reserva no se puede pagar en su estado actual');
-        }
-
-        await booking.update({
-            status: 'paid',
-            paid_at: new Date(),
-            hold_expires_at: null,
-        }, { transaction });
-
-        await transaction.commit();
-        return toPublicBooking(await loadByAccessCode(accessCode));
-    } catch (error) {
-        await transaction.rollback();
-        throw error;
-    }
+    );
+    return toPublicBooking(await loadByAccessCode(accessCode));
 }
 
 export async function cancelBooking(accessCode: string) {
-    const transaction = await sequelize.transaction();
-    try {
-        let booking = await loadByAccessCode(accessCode, transaction);
-        booking = await expireIfNeeded(booking, transaction);
-        await applyCancel(booking, transaction);
-        await transaction.commit();
-        return toPublicBooking(await loadByAccessCode(accessCode));
-    } catch (error) {
-        await transaction.rollback();
-        throw error;
-    }
+    await withLockedBooking(
+        (transaction) => lockByAccessCode(accessCode, transaction),
+        async (booking, transaction) => {
+            await applyCancel(booking, transaction);
+        }
+    );
+    return toPublicBooking(await loadByAccessCode(accessCode));
 }
 
 export async function cancelBookingById(id: number) {
-    const transaction = await sequelize.transaction();
-    try {
-        let booking = await loadById(id, transaction);
-        booking = await expireIfNeeded(booking, transaction);
-        await applyCancel(booking, transaction);
-        await transaction.commit();
-        return toPublicBooking(await loadById(id));
-    } catch (error) {
-        await transaction.rollback();
-        throw error;
-    }
+    await withLockedBooking(
+        (transaction) => lockById(id, transaction),
+        async (booking, transaction) => {
+            await applyCancel(booking, transaction);
+        }
+    );
+    return toPublicBooking(await loadById(id));
 }
 
 export async function confirmBookingById(id: number) {
-    const transaction = await sequelize.transaction();
-    try {
-        let booking = await loadById(id, transaction);
-        booking = await expireIfNeeded(booking, transaction);
+    await withLockedBooking(
+        (transaction) => lockById(id, transaction),
+        async (booking, transaction) => {
+            if (booking.status === 'confirmed') {
+                throw new HttpError(422, 'La reserva ya está confirmada');
+            }
+            if (booking.status !== 'paid') {
+                throw new HttpError(422, 'Solo se confirman reservas pagadas');
+            }
 
-        if (booking.status === 'confirmed') {
-            throw new HttpError(422, 'La reserva ya está confirmada');
+            await booking.update({
+                status: 'confirmed',
+                confirmed_at: new Date(),
+            }, { transaction });
         }
-        if (booking.status !== 'paid') {
-            throw new HttpError(422, 'Solo se confirman reservas pagadas');
-        }
-
-        await booking.update({
-            status: 'confirmed',
-            confirmed_at: new Date(),
-        }, { transaction });
-
-        await transaction.commit();
-        return toPublicBooking(await loadById(id));
-    } catch (error) {
-        await transaction.rollback();
-        throw error;
-    }
+    );
+    return toPublicBooking(await loadById(id));
 }

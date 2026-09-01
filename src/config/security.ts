@@ -17,6 +17,25 @@ export function isProduction(): boolean {
     return process.env.NODE_ENV === 'production';
 }
 
+/** Swagger en development. En production solo si ENABLE_DOCS=true. */
+export function isDocsEnabled(): boolean {
+    if (process.env.ENABLE_DOCS === 'true') {
+        return true;
+    }
+    if (process.env.ENABLE_DOCS === 'false') {
+        return false;
+    }
+    return !isProduction();
+}
+
+/** alter=true solo en development y si se pide explícito. Nunca en production. */
+export function shouldAlterSchema(): boolean {
+    if (isProduction()) {
+        return false;
+    }
+    return process.env.DB_SYNC_ALTER === 'true';
+}
+
 export function getJwtSecret(): string {
     const secret = process.env.JWT_SECRET || '';
     if (secret.length < 32) {

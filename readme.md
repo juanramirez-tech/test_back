@@ -8,7 +8,9 @@ API Node.js + Express + TypeScript + MySQL (Sequelize). El núcleo de la prueba 
 - Fechas en **UTC**. Horario local de cancha: `America/Bogota`.
 - Cancelación: si ya pagó o está confirmada, se retiene el **30%**.
 
-Documentación interactiva: [http://localhost:3000/docs](http://localhost:3000/docs) (`/docs.json` para Angular).
+Documentación interactiva (solo si `ENABLE_DOCS=true` o `NODE_ENV=development`): [http://localhost:3000/docs](http://localhost:3000/docs).
+
+API publicada: `/login`, `/api/v1/courts`, `/api/v1/bookings`, `/api/v1/admin/courts`, `/api/v1/admin/bookings`. No hay registro público, CRUD de usuarios ni uploads.
 
 ## Levantar el proyecto
 
@@ -49,7 +51,12 @@ Ajusta `.env`: `DB_HOST=127.0.0.1`, `DB_USER=app`, `DB_PASSWORD` igual que en co
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Admin de desarrollo |
 | `CORS_ORIGINS` | `http://localhost:4200` para Angular |
 
-En desarrollo, `DB_SYNC_ALTER=true` crea/actualiza tablas y el seed carga admin + 3 canchas.
+| `ENABLE_DOCS` | Swagger en `/docs`. En production default off |
+| `DB_SYNC_ALTER` | `true` solo en local al cambiar modelos; Compose lo deja en `false` |
+
+`sequelize.sync()` crea tablas que no existen. `alter: true` modifica tablas vivas y puede borrar columnas: por eso no va en Docker ni en production.
+
+El seed (solo development) **crea** el admin y las 3 canchas si no existen. Si ya están, no toca password, rol ni precios.
 
 ## Flujo de negocio
 

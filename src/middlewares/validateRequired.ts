@@ -13,7 +13,7 @@ const validateRequired = (requiredFields: string[]) => {
 
         if (missingFields.length > 0) {
             return res.status(400).json({
-                error: 'Missing required fields',
+                error: 'Faltan campos requeridos',
                 fields: missingFields,
             });
         }

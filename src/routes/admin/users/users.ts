@@ -18,15 +18,15 @@ router.post('/', validateRequired(['name', 'email', 'password', 'phone', 'role',
 
         const passwordError = validatePassword(password);
         if (passwordError) {
-            return res.status(400).json({ message: passwordError });
+            return res.status(400).json({ error: passwordError });
         }
         if (!isAllowedRole(role) || !isAllowedStatus(status)) {
-            return res.status(400).json({ message: 'Rol o estado no permitido' });
+            return res.status(400).json({ error: 'Rol o estado no permitido' });
         }
 
         const existingUser = await User.unscoped().findOne({ where: { email } });
         if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
+            return res.status(400).json({ error: 'User already exists' });
         }
 
         const encryptedPassword = await bcrypt.hash(password, 12);
@@ -34,7 +34,7 @@ router.post('/', validateRequired(['name', 'email', 'password', 'phone', 'role',
 
         const userId = user.id;
         if (!userId) {
-            return res.status(500).json({ message: 'User creation failed' });
+            return res.status(500).json({ error: 'User creation failed' });
         }
 
         const profile = await Profile.create({
@@ -48,7 +48,7 @@ router.post('/', validateRequired(['name', 'email', 'password', 'phone', 'role',
         return res.status(201).json({ user: toPublicUser(user), profile });
     } catch (error) {
         console.error('Error creating user:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -58,24 +58,24 @@ router.get('/', async (req, res) => {
         return res.status(200).json(users.map((user) => toPublicUser(user)));
     } catch (error) {
         console.error('Error fetching users:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
 router.get('/:id', async (req, res) => {
     try {
         if (!req.params.id) {
-            return res.status(400).json({ message: 'User ID is required' });
+            return res.status(400).json({ error: 'User ID is required' });
         }
 
         const user = await User.findOne({ where: { id: req.params.id } });
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ error: 'User not found' });
         }
         return res.status(200).json(toPublicUser(user));
     } catch (error) {
         console.error('Error fetching user:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -86,15 +86,15 @@ router.put('/:id', validateRequired(['name', 'email', 'password', 'phone', 'role
 
         const passwordError = validatePassword(password);
         if (passwordError) {
-            return res.status(400).json({ message: passwordError });
+            return res.status(400).json({ error: passwordError });
         }
         if (!isAllowedRole(role) || !isAllowedStatus(status)) {
-            return res.status(400).json({ message: 'Rol o estado no permitido' });
+            return res.status(400).json({ error: 'Rol o estado no permitido' });
         }
 
         const user = await User.unscoped().findOne({ where: { id } });
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ error: 'User not found' });
         }
 
         const encryptedPassword = await bcrypt.hash(password, 12);
@@ -102,7 +102,7 @@ router.put('/:id', validateRequired(['name', 'email', 'password', 'phone', 'role
         return res.status(200).json(toPublicUser(user));
     } catch (error) {
         console.error('Error updating user:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -110,17 +110,17 @@ router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         if (!id) {
-            return res.status(400).json({ message: 'User ID is required' });
+            return res.status(400).json({ error: 'User ID is required' });
         }
         const user = await User.findOne({ where: { id } });
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ error: 'User not found' });
         }
         await user.destroy();
-        return res.status(200).json({ message: 'User deleted successfully' });
+        return res.status(200).json({ ok: true });
     } catch (error) {
         console.error('Error deleting user:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
