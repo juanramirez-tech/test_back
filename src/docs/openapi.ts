@@ -546,6 +546,32 @@ export const openApiSpec = {
                     404: { $ref: '#/components/responses/NotFound' },
                 },
             },
+            delete: {
+                tags: ['Admin Canchas'],
+                summary: 'Eliminar cancha',
+                description:
+                    '422 si la cancha tiene reservas asociadas. No se borra en cascada: desactívala en su lugar.',
+                security: [{ BearerAuth: [] }],
+                parameters: [{ $ref: '#/components/parameters/CourtId' }],
+                responses: {
+                    200: {
+                        description: 'Eliminada',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: { ok: { type: 'boolean', example: true } },
+                                },
+                            },
+                        },
+                    },
+                    400: { $ref: '#/components/responses/BadRequest' },
+                    401: { $ref: '#/components/responses/Unauthorized' },
+                    403: { $ref: '#/components/responses/Forbidden' },
+                    404: { $ref: '#/components/responses/NotFound' },
+                    422: { $ref: '#/components/responses/Unprocessable' },
+                },
+            },
         },
         '/api/v1/admin/bookings': {
             get: {

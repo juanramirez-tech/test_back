@@ -1,6 +1,7 @@
 import express from 'express';
 import {
     createCourt,
+    deleteCourt,
     getAdminCourt,
     listAdminCourts,
     updateCourt,
@@ -54,6 +55,14 @@ router.patch('/:id', async (req, res) => {
         return res.status(200).json(court);
     } catch (error) {
         return sendError(res, error, 'Error al actualizar la cancha');
+    }
+});
+
+router.delete('/:id', async (req, res) => {
+    try {
+        return res.status(200).json(await deleteCourt(req.params.id));
+    } catch (error) {
+        return sendError(res, error, 'Error al eliminar la cancha');
     }
 });
 

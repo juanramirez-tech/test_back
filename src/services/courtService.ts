@@ -234,3 +234,20 @@ export async function updateCourt(idValue: unknown, body: Record<string, unknown
         throw error;
     }
 }
+
+export async function deleteCourt(idValue: unknown) {
+    const id = parsePositiveId(idValue);
+    if (!id) {
+        throw new HttpError(400, 'ID de cancha inválido');
+    }
+    const court = await loadCourt(id);
+    const slots = await ReservationSlot.count({ where: { court_id: court.id } });
+    if (slots > 0) {
+        throw new HttpError(
+            422,
+            'No se puede eliminar: la cancha tiene reservas asociadas. Desactívala en su lugar.',
+        );
+    }
+    await court.destroy();
+    return { ok: true as const };
+}
